@@ -6,6 +6,12 @@ import {
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
 
+const AWS_RESPONSES = {
+  SUCESS: "Succeeded",
+  TEMPORARY_FAILURE: "TemporaryFailure",
+  PERMANENT_FAILURE: "PermanentFailure",
+};
+
 async function streamToString(stream) {
   return await new Promise((resolve, reject) => {
     const chunks = [];
@@ -46,8 +52,8 @@ const compressImage = async (uncompressedImage, extension, options) => {
       width: metadata.width,
       height: metadata.height,
     })
-    .resize()
-  
+    .resize();
+
   if (extension === "png") {
     return await img.png(options).toBuffer();
   }
@@ -55,40 +61,77 @@ const compressImage = async (uncompressedImage, extension, options) => {
   if (extension === "jpeg") {
     return await img.jpeg(options).toBuffer();
   }
-    
+
   return Promise.reject(new Error("extension not supported."));
 };
 
 export const handler = async (event) => {
   try {
-    const region = event.region || "us-east-1";
-    const bucketName = event.bucket;
-    const objectKey = event.key;
-    const quality = event.quality || 70;
-    const fileExtension = objectKey.split(".").at(-1);
+    const region = process.env.AWS_REGION || "us-east-1";
+    const bucketName = event.tasks?.[0]?.s3BucketArn?.split(":::")?.at(-1);
+    const objectKey = event.tasks?.[0]?.s3Key;
+    const fileExtension = objectKey?.split(".")?.at(-1);
+    const quality = process.env.IMAGE_QUALITY || 70;
+
+    if (!bucketName || !objectKey) {
+      console.error("[ERROR]: Bucket or Object key is missing.");
+      return {
+        invocationSchemaVersion: event.invocationSchemaVersion,
+        treatMissingKeysAs: AWS_RESPONSES.PERMANENT_FAILURE,
+        invocationId: event.invocationId,
+        results: [
+          {
+            taskId: event.tasks?.[0]?.taskId,
+            resultCode: AWS_RESPONSES.PERMANENT_FAILURE,
+            resultString: "[ERROR]: Bucket or Object key is missing.",
+          },
+        ],
+      };
+    }
 
     const s3 = new S3Client({ region });
 
     const uncompressedImage = await getObject(s3, bucketName, objectKey);
     const bufferedImage = Buffer.from(uncompressedImage, "base64");
-    
+
     const compressedImageBuffer = await compressImage(
       bufferedImage,
       fileExtension,
       { compressionLevel: 9, quality }
     );
 
-    const response = await putObject(s3, bucketName, objectKey, compressedImageBuffer);
+    const response = await putObject(
+      s3,
+      bucketName,
+      objectKey,
+      compressedImageBuffer
+    );
 
     return {
-      statusCode: 200,
-      body: JSON.stringify(response),
+      invocationSchemaVersion: event.invocationSchemaVersion,
+      treatMissingKeysAs: AWS_RESPONSES.PERMANENT_FAILURE,
+      invocationId: event.invocationId,
+      results: [
+        {
+          taskId: event.tasks?.[0]?.taskId,
+          resultCode: AWS_RESPONSES.SUCESS,
+          resultString: JSON.stringify(response),
+        },
+      ],
     };
   } catch (e) {
     console.error("[ERROR]:", e.message);
     return {
-      statusCode: 500,
-      body: JSON.stringify({ error: e.message }),
+      invocationSchemaVersion: event.invocationSchemaVersion,
+      treatMissingKeysAs: AWS_RESPONSES.PERMANENT_FAILURE,
+      invocationId: event.invocationId,
+      results: [
+        {
+          taskId: event.tasks?.[0]?.taskId,
+          resultCode: AWS_RESPONSES.PERMANENT_FAILURE,
+          resultString: "[ERROR]: " + e.message,
+        },
+      ],
     };
   }
 };
