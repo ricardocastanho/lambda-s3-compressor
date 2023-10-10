@@ -1,6 +1,6 @@
 # AWS Lambda function to compress s3 images
 
-This AWS Lambda function contains the [Sharp](https://sharp.pixelplumbing.com/) library, which is a high-performance Node.js image processing library.
+This AWS Lambda function has the goal on compressing AWS S3 images and it's fully compatible with [AWS S3 Batch Operations](https://docs.aws.amazon.com/AmazonS3/latest/userguide/batch-ops.html) using the [Sharp](https://sharp.pixelplumbing.com/) library, which is a high-performance Node.js image processing library.
 
 **Note: This layer is compatible with Node.js 18.x runtime on AWS Lambda.**
 
